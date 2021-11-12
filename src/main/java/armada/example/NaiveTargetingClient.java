@@ -28,6 +28,18 @@ public class NaiveTargetingClient {
                 fire();
             }
         }
+        Thread.sleep(1000);
+        finish();
+    }
+
+    private static void finish() throws IOException {
+        final Request target = new Request.Builder()
+                .url("http://localhost:7000/finish")
+                .build();
+
+        try (Response response = client.newCall(target).execute()) {
+            System.out.println(response.body().string());
+        }
     }
 
     private static void target(int x, int y) throws IOException {
