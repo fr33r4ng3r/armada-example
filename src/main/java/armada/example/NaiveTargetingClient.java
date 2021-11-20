@@ -14,6 +14,7 @@ public class NaiveTargetingClient {
 
     static final ObjectMapper mapper = new ObjectMapper();
     static final OkHttpClient client = new OkHttpClient.Builder().readTimeout(30, TimeUnit.SECONDS).build();
+    static final HttpUrl base = HttpUrl.parse("http://localhost:7000/api/v1/");
 
     public static void main(String... args) throws Exception {
 
@@ -34,7 +35,7 @@ public class NaiveTargetingClient {
 
     private static void finish() throws IOException {
         final Request target = new Request.Builder()
-                .url("http://localhost:7000/finish")
+                .url(base.resolve("finish"))
                 .build();
 
         try (Response response = client.newCall(target).execute()) {
@@ -46,7 +47,7 @@ public class NaiveTargetingClient {
         final TargetData data = new TargetData(x, y, 0);
         final Request target = new Request.Builder()
                 .method("POST", RequestBody.create(mapper.writeValueAsBytes(data), MediaType.parse("application/json")))
-                .url("http://localhost:7000/target")
+                .url(base.resolve("target"))
                 .build();
 
         try (Response response = client.newCall(target).execute()) {
@@ -58,7 +59,7 @@ public class NaiveTargetingClient {
         final GunData data = new GunData(0, 0);
         final Request request = new Request.Builder()
                 .method("POST", RequestBody.create(mapper.writeValueAsBytes(data), MediaType.parse("application/json")))
-                .url("http://localhost:7000/load")
+                .url(base.resolve("load"))
                 .build();
 
         try (Response response = client.newCall(request).execute()) {
@@ -70,7 +71,7 @@ public class NaiveTargetingClient {
         final GunData data = new GunData(0, 0);
         final Request request = new Request.Builder()
                 .method("POST", RequestBody.create(mapper.writeValueAsBytes(data), MediaType.parse("application/json")))
-                .url("http://localhost:7000/fire")
+                .url(base.resolve("fire"))
                 .build();
 
         try (Response response = client.newCall(request).execute()) {
@@ -82,7 +83,7 @@ public class NaiveTargetingClient {
         final RegistrationData registrationData = new RegistrationData(name);
         final Request register = new Request.Builder()
                 .method("POST", RequestBody.create(mapper.writeValueAsBytes(registrationData), MediaType.parse("application/json")))
-                .url("http://localhost:7000/register")
+                .url(base.resolve("register"))
                 .build();
 
         try (Response response = client.newCall(register).execute()) {
@@ -93,7 +94,7 @@ public class NaiveTargetingClient {
 
     private static void ping() throws IOException {
         final Request ping = new Request.Builder()
-                .url("http://localhost:7000/ping")
+                .url(base.resolve("ping"))
                 .build();
 
         try (Response response = client.newCall(ping).execute()) {
