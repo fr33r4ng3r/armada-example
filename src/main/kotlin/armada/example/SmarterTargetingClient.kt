@@ -33,9 +33,11 @@ import kotlinx.serialization.ExperimentalSerializationApi
 import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.json.Json
 import java.util.concurrent.Executors
+import java.util.concurrent.atomic.AtomicInteger
 import kotlin.math.pow
 import kotlin.math.roundToLong
 import kotlin.math.sqrt
+import kotlin.math.ceil
 import kotlin.time.Duration
 import kotlin.time.Duration.Companion.milliseconds
 import kotlin.time.Duration.Companion.seconds
@@ -71,7 +73,7 @@ class SmarterTargetingClient {
 
     private val observer = Channel<Coord>()
 
-    private val phase2Trigger = Channel<Boolean>()
+    private val phaseTrigger = Channel<Unit>()
 
     private suspend fun register(name: String): TheatreData {
         return client.post {
@@ -160,6 +162,8 @@ class SmarterTargetingClient {
 
         val theatre = register("Ian's Smarter Example")
 
+        val hitCounter = theatre.ships.sumOf { ship -> ship.length * ship.width }
+
         val grid = Array(theatre.gridWidth) { Array(theatre.gridHeight) { Tile.UNKNOWN } }
 
         val equator = theatre.gridHeight / 2
@@ -173,9 +177,9 @@ class SmarterTargetingClient {
                 val coord = observer.receive()
                 with(coord) {
                     val wait =
-                        ((sqrt(((theatre.gridWidth - x) * 100.0).pow(2) + ((equator - y) * 100.0).pow(2)) / 750.0) * 1000).roundToLong()
+                        ceil(((sqrt(((theatre.gridWidth - x) * 100.0).pow(2) + ((equator - y) * 100.0).pow(2)) / 750.0) * 1000.0)).roundToLong()
                     launch {
-                        delay(milliseconds(wait))
+                        delay(milliseconds(wait + 250))
                         grid[x][y] = Tile.CHECK
                     }
                 }
@@ -200,8 +204,8 @@ class SmarterTargetingClient {
 
         gunners.forEach { it.start() }
 
-        observeSatelliteFeed(grid) { x, y ->
-                firingSequence(Coord(x, y))
+        observeSatelliteFeed(grid, hitCounter) { x, y ->
+            firingSequence(Coord(x, y))
         }
 
         for (x in 0 until theatre.gridWidth step 4) {
@@ -212,7 +216,11 @@ class SmarterTargetingClient {
             }
         }
 
-        phase2Trigger.receive()
+        phaseTrigger.receive()
+        if (grid.sumOf { x -> x.count { t -> t == Tile.HOT } } == hitCounter) {
+            stop()
+            return@coroutineScope
+        }
 
         for (x in 0 until theatre.gridWidth step 4) {
             for (y in 0 until theatre.gridHeight step 2) {
@@ -222,17 +230,35 @@ class SmarterTargetingClient {
             }
         }
 
-        phase2Trigger.receive()
+        phaseTrigger.receive()
+        if (grid.sumOf { x -> x.count { t -> t == Tile.HOT } } == hitCounter) {
+            stop()
+            return@coroutineScope
+        }
 
+        for (x in 1 until theatre.gridWidth step 2) {
+            for (y in 1 until theatre.gridHeight step 2) {
+                firingSequence(Coord(x, y))
+            }
+        }
+
+        var hitsRemaining: Int
+        do {
+            phaseTrigger.receive()
+            hitsRemaining = hitCounter - grid.sumOf { x -> x.count { t -> t == Tile.HOT } }
+            println("Counter: $hitsRemaining")
+        } while (hitsRemaining > 0)
+
+        stop()
+    }
+
+    suspend fun stop() {
         finish()
-
         client.close()
     }
 
     @OptIn(DelicateCoroutinesApi::class)
-    fun observeSatelliteFeed(grid: Array<Array<Tile>>, target: suspend (Int, Int) -> Unit) {
-        var count = 0
-        var countCoord = Coord(0,0)
+    fun observeSatelliteFeed(grid: Array<Array<Tile>>, hitCounter: Int, target: suspend (Int, Int) -> Unit) {
         GlobalScope.launch(Executors.newSingleThreadExecutor {
             val thread = Thread(it)
             thread.isDaemon = true
@@ -249,6 +275,8 @@ class SmarterTargetingClient {
                     )
                 )
                 })
+            var count = 0
+            var countCoord = Coord(0, 0)
             stream.takeWhile { isActive }.collect {
                 val scan = Json.decodeFromString<ScanData>(it.data.readText())
                 with(scan) {
@@ -258,7 +286,8 @@ class SmarterTargetingClient {
                             println("End $x,$y")
                             val current = grid.sumOf { x -> x.count { t -> t == Tile.UNKNOWN } }
                             if (count == current) {
-                                phase2Trigger.send(true)
+                                println("No More $x,$y")
+                                phaseTrigger.send(Unit)
                             } else {
                                 count = current
                             }
@@ -267,6 +296,9 @@ class SmarterTargetingClient {
                     if (grid[x][y] == Tile.CHECK) {
                         if (thermalIndex > 0) {
                             grid[x][y] = Tile.HOT
+                            if (grid.sumOf { x -> x.count { t -> t == Tile.HOT } } == hitCounter) {
+                                phaseTrigger.send(Unit)
+                            }
                             println("Hit $x,$y")
                             val testCoords = ArrayList<Coord>()
                             if (x < grid.size - 1) {
@@ -291,6 +323,7 @@ class SmarterTargetingClient {
                             }
                         } else {
                             grid[x][y] = Tile.COLD
+                            println("Miss $x,$y")
                         }
                     }
                 }
